@@ -8,6 +8,7 @@
 
 import AppKit
 import CoreGraphics
+import Darwin
 import os
 
 enum DisplayLocation {
@@ -40,12 +41,26 @@ enum DisplayTransferBaseline {
     case formula(DisplayTransferFormula)
 }
 
+private typealias DisplayServicesGetBrightnessFunction = @convention(c) (CGDirectDisplayID, UnsafeMutablePointer<Float>) -> Int32
+private typealias DisplayServicesSetBrightnessFunction = @convention(c) (CGDirectDisplayID, Float) -> Int32
+private typealias DisplayServicesCanChangeBrightnessFunction = @convention(c) (CGDirectDisplayID) -> Bool
+
+private struct DisplayServicesBrightnessAPI {
+    let handle: UnsafeMutableRawPointer
+    let getBrightness: DisplayServicesGetBrightnessFunction
+    let setBrightness: DisplayServicesSetBrightnessFunction
+    let canChangeBrightness: DisplayServicesCanChangeBrightnessFunction?
+}
+
 class Stillcolor {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "IOKit")
     private static let softwareDimmingLogger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "SoftwareDimming")
+    private static let hardwareBrightnessLogger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "HardwareBrightness")
     private static let softwareBrightnessRange = 0.05...1.0
     private static let displayTransferEpsilon: CGGammaValue = 0.0001
     private static var originalTransferBaselines: [CGDirectDisplayID: DisplayTransferBaseline] = [:]
+    private static var cachedDisplayServicesBrightnessAPI: DisplayServicesBrightnessAPI?
+    private static var attemptedToLoadDisplayServicesBrightnessAPI = false
 
     
     static func setPropertiesOnDisplayDriver(_ props : Dictionary<String, CFTypeRef>, _ targetDisplayLocation: DisplayLocation = .All) {
@@ -169,10 +184,46 @@ class Stillcolor {
         originalTransferBaselines.removeAll()
     }
 
+    static func setHardwareBrightnessToMaxIfEnabled() {
+        guard UserDefaults.standard.bool(forKey: "keepHardwareBrightnessAtMax") else {
+            return
+        }
+
+        setHardwareBrightnessToMax()
+    }
+
+    static func setHardwareBrightnessToMax() {
+        guard let api = loadDisplayServicesBrightnessAPI() else {
+            hardwareBrightnessLogger.error("DisplayServices brightness API unavailable")
+            return
+        }
+
+        let displays = builtInDisplays()
+        guard !displays.isEmpty else {
+            hardwareBrightnessLogger.error("No built-in displays available for hardware brightness control")
+            return
+        }
+
+        for displayID in displays {
+            if let canChangeBrightness = api.canChangeBrightness, !canChangeBrightness(displayID) {
+                hardwareBrightnessLogger.info("Skipping display \(displayID): hardware brightness control not available")
+                continue
+            }
+
+            let result = api.setBrightness(displayID, 1.0)
+            if result != 0 {
+                hardwareBrightnessLogger.error("Failed to set hardware brightness to max for display \(displayID): \(result)")
+            } else {
+                hardwareBrightnessLogger.info("Set hardware brightness to max for display \(displayID)")
+            }
+        }
+    }
+
     static func applyCurrentPreferences() {
         let defaults = UserDefaults.standard
         enableDisableDithering(defaults.bool(forKey: "disableDithering"))
         enableDisableUniformity2D(defaults.bool(forKey: "disableUniformity2D"))
+        setHardwareBrightnessToMaxIfEnabled()
         enableDisableSoftwareDimming(
             defaults.bool(forKey: "enableSoftwareDimming"),
             brightness: defaults.object(forKey: "softwareBrightness") as? Double ?? 1.0
@@ -196,6 +247,44 @@ class Stillcolor {
     
     static func CFNumberFromInteger(_ value: UInt32) -> CFNumber {
         return NSNumber(value: value) as CFNumber
+    }
+
+    private static func loadDisplayServicesBrightnessAPI() -> DisplayServicesBrightnessAPI? {
+        if let api = cachedDisplayServicesBrightnessAPI {
+            return api
+        }
+
+        if attemptedToLoadDisplayServicesBrightnessAPI {
+            return nil
+        }
+        attemptedToLoadDisplayServicesBrightnessAPI = true
+
+        let frameworkPath = "/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices"
+        guard let handle = dlopen(frameworkPath, RTLD_NOW) else {
+            let message = String(cString: dlerror())
+            hardwareBrightnessLogger.error("Failed to load DisplayServices framework: \(message)")
+            return nil
+        }
+
+        guard
+            let getBrightnessSymbol = dlsym(handle, "DisplayServicesGetBrightness"),
+            let setBrightnessSymbol = dlsym(handle, "DisplayServicesSetBrightness")
+        else {
+            let message = dlerror().map { String(cString: $0) } ?? "unknown symbol lookup failure"
+            hardwareBrightnessLogger.error("DisplayServices brightness symbols unavailable: \(message)")
+            return nil
+        }
+
+        let api = DisplayServicesBrightnessAPI(
+            handle: handle,
+            getBrightness: unsafeBitCast(getBrightnessSymbol, to: DisplayServicesGetBrightnessFunction.self),
+            setBrightness: unsafeBitCast(setBrightnessSymbol, to: DisplayServicesSetBrightnessFunction.self),
+            canChangeBrightness: dlsym(handle, "DisplayServicesCanChangeBrightness").map {
+                unsafeBitCast($0, to: DisplayServicesCanChangeBrightnessFunction.self)
+            }
+        )
+        cachedDisplayServicesBrightnessAPI = api
+        return api
     }
 
     private static func applySoftwareDimming(brightness: Double) {
