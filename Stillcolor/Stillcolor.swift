@@ -217,9 +217,23 @@ class Stillcolor {
             if result != 0 {
                 hardwareBrightnessLogger.error("Failed to set hardware brightness for display \(displayID) to \(clampedBrightness): \(result)")
             } else {
-                hardwareBrightnessLogger.info("Set hardware brightness for display \(displayID) to \(clampedBrightness)")
+                hardwareBrightnessLogger.debug("Set hardware brightness for display \(displayID) to \(clampedBrightness)")
             }
         }
+    }
+
+    static func refreshSavedHardwareBrightnessFromCurrentDisplay() -> Double? {
+        guard let currentBrightness = currentHardwareBrightnessValue() else {
+            return nil
+        }
+
+        let clampedBrightness = min(max(currentBrightness, hardwareBrightnessRange.lowerBound), hardwareBrightnessRange.upperBound)
+        UserDefaults.standard.set(clampedBrightness, forKey: "hardwareBrightness")
+        return clampedBrightness
+    }
+
+    static func currentHardwareBrightnessValue() -> Double? {
+        currentHardwareBrightness()
     }
 
     static func applyCurrentPreferences() {
@@ -288,6 +302,35 @@ class Stillcolor {
         )
         cachedDisplayServicesBrightnessAPI = api
         return api
+    }
+
+    private static func currentHardwareBrightness() -> Double? {
+        guard let api = loadDisplayServicesBrightnessAPI() else {
+            hardwareBrightnessLogger.error("DisplayServices brightness API unavailable for reading")
+            return nil
+        }
+
+        let displays = builtInDisplays()
+        guard !displays.isEmpty else {
+            hardwareBrightnessLogger.error("No built-in displays available for hardware brightness read")
+            return nil
+        }
+
+        for displayID in displays {
+            if let canChangeBrightness = api.canChangeBrightness, !canChangeBrightness(displayID) {
+                continue
+            }
+
+            var brightness: Float = 0
+            let result = api.getBrightness(displayID, &brightness)
+            if result == 0 {
+                return Double(brightness)
+            }
+
+            hardwareBrightnessLogger.error("Failed to read hardware brightness for display \(displayID): \(result)")
+        }
+
+        return nil
     }
 
     private static func applySoftwareDimming(brightness: Double) {

@@ -10,11 +10,16 @@ import LaunchAtLogin
 
 @main
 struct StillcolorApp: App {
+    private static let hardwareBrightnessPollingInterval = 0.1
+    private static let hardwareBrightnessPollingEpsilon = 0.01
+
     @AppStorage("disableDithering") var disableDithering: Bool = true
     @AppStorage("disableUniformity2D") var disableUniformity2D: Bool = false
     @AppStorage("enableSoftwareDimming") var enableSoftwareDimming: Bool = false
     @AppStorage("hardwareBrightness") var hardwareBrightness: Double = 1.0
     @AppStorage("softwareBrightness") var softwareBrightness: Double = 1.0
+
+    @State private var hardwareBrightnessPollingTimer: Timer?
     
     let detector = ScreenDetector()
     
@@ -148,7 +153,41 @@ struct StillcolorApp: App {
             }
             .padding(12)
             .frame(width: 320)
+            .onAppear {
+                syncHardwareBrightnessFromDisplay()
+                startHardwareBrightnessPolling()
+            }
+            .onDisappear {
+                stopHardwareBrightnessPolling()
+            }
         }
         .menuBarExtraStyle(.window)
+    }
+
+    private func startHardwareBrightnessPolling() {
+        guard hardwareBrightnessPollingTimer == nil else {
+            return
+        }
+
+        hardwareBrightnessPollingTimer = Timer.scheduledTimer(withTimeInterval: Self.hardwareBrightnessPollingInterval, repeats: true) { _ in
+            syncHardwareBrightnessFromDisplay()
+        }
+    }
+
+    private func stopHardwareBrightnessPolling() {
+        hardwareBrightnessPollingTimer?.invalidate()
+        hardwareBrightnessPollingTimer = nil
+    }
+
+    private func syncHardwareBrightnessFromDisplay() {
+        guard let currentBrightness = Stillcolor.currentHardwareBrightnessValue() else {
+            return
+        }
+
+        guard abs(currentBrightness - hardwareBrightness) > Self.hardwareBrightnessPollingEpsilon else {
+            return
+        }
+
+        hardwareBrightness = currentBrightness
     }
 }
