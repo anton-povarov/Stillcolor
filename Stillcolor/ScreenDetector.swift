@@ -27,18 +27,29 @@ class ScreenDetector {
     }
     
     @objc func ensurePreferences() {
-        Stillcolor.enableDisableDithering(UserDefaults.standard.bool(forKey: "disableDithering"))
+        Stillcolor.applyCurrentPreferences()
         self.timer?.invalidate()
     }
     
+    @objc func ensurePreferencesAfterWake() {
+        Stillcolor.applyCurrentPreferences()
+    }
 
-    func addObervers() {
+    @objc func restoreSoftwareDimmingBeforeQuit() {
+        Stillcolor.restoreSoftwareDimming()
+    }
+
+    func addObservers() {
         let userData = Unmanaged<ScreenDetector>.passUnretained(self).toOpaque()
         CGDisplayRegisterReconfigurationCallback(ScreenDetector.callback, userData)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(ensurePreferencesAfterWake), name: NSWorkspace.didWakeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(restoreSoftwareDimmingBeforeQuit), name: NSApplication.willTerminateNotification, object: nil)
     }
     
     func removeObservers() {
         let userData = Unmanaged<ScreenDetector>.passUnretained(self).toOpaque()
         CGDisplayRemoveReconfigurationCallback(ScreenDetector.callback, userData)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        NotificationCenter.default.removeObserver(self)
     }
 }

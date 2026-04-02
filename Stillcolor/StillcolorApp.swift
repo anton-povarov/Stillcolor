@@ -12,13 +12,14 @@ import LaunchAtLogin
 struct StillcolorApp: App {
     @AppStorage("disableDithering") var disableDithering: Bool = true
     @AppStorage("disableUniformity2D") var disableUniformity2D: Bool = false
+    @AppStorage("enableSoftwareDimming") var enableSoftwareDimming: Bool = false
+    @AppStorage("softwareBrightness") var softwareBrightness: Double = 1.0
     
-    var detector = ScreenDetector();
+    let detector = ScreenDetector()
     
     init() {
-        detector.addObervers()
-        Stillcolor.enableDisableDithering(disableDithering)
-        Stillcolor.enableDisableUniformity2D(disableUniformity2D)
+        detector.addObservers()
+        Stillcolor.applyCurrentPreferences()
     }
     
     var body: some Scene {
@@ -26,37 +27,97 @@ struct StillcolorApp: App {
             "Stillcolor",
             systemImage: "\(disableDithering  ? "livephoto.slash" : "livephoto")"
         ) {
-            Toggle("Disable Dithering", isOn: .init(
-                get: { disableDithering },
-                set: {
-                    disableDithering = $0
-                    Stillcolor.enableDisableDithering(disableDithering)
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Disable Dithering", isOn: .init(
+                    get: { disableDithering },
+                    set: {
+                        disableDithering = $0
+                        Stillcolor.enableDisableDithering(disableDithering)
+                    }
+                ))
+                
+                Toggle("Disable uniformity2D", isOn: .init(
+                    get: { disableUniformity2D },
+                    set: {
+                        disableUniformity2D = $0
+                        Stillcolor.enableDisableUniformity2D(disableUniformity2D)
+                    }
+                ))
+                
+                Divider()
+
+                Toggle("Enable Software Dimming", isOn: .init(
+                    get: { enableSoftwareDimming },
+                    set: {
+                        enableSoftwareDimming = $0
+                        Stillcolor.enableDisableSoftwareDimming(enableSoftwareDimming, brightness: softwareBrightness)
+                    }
+                ))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Software Brightness")
+                        Spacer()
+                        Text("\(Int(softwareBrightness * 100))%")
+                            .foregroundColor(.secondary)
+                    }
+
+                    Slider(value: .init(
+                        get: { softwareBrightness },
+                        set: {
+                            softwareBrightness = $0
+                            if enableSoftwareDimming {
+                                Stillcolor.setSoftwareBrightness(softwareBrightness)
+                            }
+                        }
+                    ), in: 0.05...1.0)
+                    .disabled(!enableSoftwareDimming)
                 }
-            ))
-            
-            Toggle("Disable uniformity2D", isOn: .init(
-                get: { disableUniformity2D },
-                set: {
-                    disableUniformity2D = $0
-                    Stillcolor.enableDisableUniformity2D(disableUniformity2D)
+
+                Text("Keeps hardware brightness fixed high and dims the built-in display through a software filter.")
+                    .font(.caption)
+                    .fontWeight(.thin)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.leading)
+
+                Button("Reset Software Brightness") {
+                    softwareBrightness = 1.0
+                    if enableSoftwareDimming {
+                        Stillcolor.setSoftwareBrightness(softwareBrightness)
+                    } else {
+                        Stillcolor.restoreSoftwareDimming()
+                    }
                 }
-            ))
-            
-            Label {
+
+                Button("Re-capture Dimming Baseline") {
+                    Stillcolor.recaptureSoftwareDimmingBaseline(
+                        brightness: enableSoftwareDimming ? softwareBrightness : nil
+                    )
+                }
+
+                Text("Use this after changing display preset or color profile while the app is running.")
+                    .font(.caption)
+                    .fontWeight(.thin)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.leading)
+
                 Text("(Experimental) Stop built-in display from\nusing lower brightness levels around the edges")
                     .font(.caption)
                     .fontWeight(.thin)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.leading)
-            } icon: {
+                
+                Divider()
+                LaunchAtLogin.Toggle()
+                Divider()
+                
+                Button("Quit Stillcolor") {
+                    NSApplication.shared.terminate(nil)
+                }
             }
-            
-            Divider()
-            LaunchAtLogin.Toggle()
-            Divider()
-            Button("Quit Stillcolor") {
-                NSApplication.shared.terminate(nil)
-            }.keyboardShortcut("q")
+            .padding(12)
+            .frame(width: 320)
         }
+        .menuBarExtraStyle(.window)
     }
 }
