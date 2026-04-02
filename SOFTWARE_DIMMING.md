@@ -137,6 +137,20 @@ Why dynamic loading is used:
 - it avoids adding a direct build-time dependency on a private framework
 - it allows clean failure logging if Apple changes or removes the SPI
 
+### Sandboxing Requirement For Signed Runs
+
+Signed sandboxed builds need an explicit mach lookup exception for the XPC service used by Apple's brightness stack:
+
+- `com.apple.security.temporary-exception.mach-lookup.global-name`
+  - `com.apple.backlightd`
+
+Without that entitlement, Xcode-run or any other signed sandboxed launch path will fail with an error similar to:
+
+- `The connection to service named com.apple.backlightd was invalidated`
+- `Sandbox restriction`
+
+This did not show up in earlier unsigned command-line builds because `CODE_SIGNING_ALLOWED=NO` prevents the app sandbox from being enforced in the same way.
+
 ### UI
 
 The menu bar UI in [`Stillcolor/StillcolorApp.swift`](./Stillcolor/StillcolorApp.swift) now includes:
