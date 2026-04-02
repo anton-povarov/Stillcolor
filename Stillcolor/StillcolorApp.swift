@@ -13,8 +13,8 @@ struct StillcolorApp: App {
     @AppStorage("disableDithering") var disableDithering: Bool = true
     @AppStorage("disableUniformity2D") var disableUniformity2D: Bool = false
     @AppStorage("enableSoftwareDimming") var enableSoftwareDimming: Bool = false
+    @AppStorage("hardwareBrightness") var hardwareBrightness: Double = 1.0
     @AppStorage("softwareBrightness") var softwareBrightness: Double = 1.0
-    @AppStorage("keepHardwareBrightnessAtMax") var keepHardwareBrightnessAtMax: Bool = false
     
     let detector = ScreenDetector()
     
@@ -47,21 +47,29 @@ struct StillcolorApp: App {
                 
                 Divider()
 
-                Toggle("Keep Hardware Brightness At Max", isOn: .init(
-                    get: { keepHardwareBrightnessAtMax },
-                    set: {
-                        keepHardwareBrightnessAtMax = $0
-                        if keepHardwareBrightnessAtMax {
-                            Stillcolor.setHardwareBrightnessToMax()
-                        }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Hardware Brightness")
+                        Spacer()
+                        Text("\(Int(hardwareBrightness * 100))%")
+                            .foregroundColor(.secondary)
                     }
-                ))
 
-                Button("Set Hardware Brightness To Max Now") {
-                    Stillcolor.setHardwareBrightnessToMax()
+                    Slider(value: .init(
+                        get: { hardwareBrightness },
+                        set: {
+                            hardwareBrightness = $0
+                            Stillcolor.setHardwareBrightness(hardwareBrightness)
+                        }
+                    ), in: 0.05...1.0)
                 }
 
-                Text("Uses Apple's display services to push the built-in panel back to full hardware brightness on demand, at launch, and after wake.")
+                Button("Set Hardware Brightness To Max Now") {
+                    hardwareBrightness = 1.0
+                    Stillcolor.setHardwareBrightness(hardwareBrightness)
+                }
+
+                Text("Uses Apple's display services to restore the built-in panel brightness you choose here on launch, wake, and display changes.")
                     .font(.caption)
                     .fontWeight(.thin)
                     .foregroundColor(.secondary)
@@ -73,9 +81,6 @@ struct StillcolorApp: App {
                     get: { enableSoftwareDimming },
                     set: {
                         enableSoftwareDimming = $0
-                        if enableSoftwareDimming {
-                            Stillcolor.setHardwareBrightnessToMaxIfEnabled()
-                        }
                         Stillcolor.enableDisableSoftwareDimming(enableSoftwareDimming, brightness: softwareBrightness)
                     }
                 ))
@@ -100,7 +105,7 @@ struct StillcolorApp: App {
                     .disabled(!enableSoftwareDimming)
                 }
 
-                Text("Keeps hardware brightness fixed high and dims the built-in display through a software filter.")
+                Text("Lets you keep hardware brightness stable and dim the built-in display further through a software filter.")
                     .font(.caption)
                     .fontWeight(.thin)
                     .foregroundColor(.secondary)

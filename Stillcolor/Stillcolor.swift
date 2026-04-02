@@ -57,6 +57,7 @@ class Stillcolor {
     private static let softwareDimmingLogger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "SoftwareDimming")
     private static let hardwareBrightnessLogger = Logger(subsystem: Bundle.main.bundleIdentifier!, category: "HardwareBrightness")
     private static let softwareBrightnessRange = 0.05...1.0
+    private static let hardwareBrightnessRange = 0.05...1.0
     private static let displayTransferEpsilon: CGGammaValue = 0.0001
     private static var originalTransferBaselines: [CGDirectDisplayID: DisplayTransferBaseline] = [:]
     private static var cachedDisplayServicesBrightnessAPI: DisplayServicesBrightnessAPI?
@@ -184,20 +185,22 @@ class Stillcolor {
         originalTransferBaselines.removeAll()
     }
 
-    static func setHardwareBrightnessToMaxIfEnabled() {
-        guard UserDefaults.standard.bool(forKey: "keepHardwareBrightnessAtMax") else {
-            return
-        }
-
-        setHardwareBrightnessToMax()
+    static func setHardwareBrightnessToSavedPreference() {
+        let storedBrightness = UserDefaults.standard.object(forKey: "hardwareBrightness") as? Double ?? hardwareBrightnessRange.upperBound
+        setHardwareBrightness(storedBrightness)
     }
 
     static func setHardwareBrightnessToMax() {
+        setHardwareBrightness(hardwareBrightnessRange.upperBound)
+    }
+
+    static func setHardwareBrightness(_ brightness: Double) {
         guard let api = loadDisplayServicesBrightnessAPI() else {
             hardwareBrightnessLogger.error("DisplayServices brightness API unavailable")
             return
         }
 
+        let clampedBrightness = min(max(brightness, hardwareBrightnessRange.lowerBound), hardwareBrightnessRange.upperBound)
         let displays = builtInDisplays()
         guard !displays.isEmpty else {
             hardwareBrightnessLogger.error("No built-in displays available for hardware brightness control")
@@ -210,11 +213,11 @@ class Stillcolor {
                 continue
             }
 
-            let result = api.setBrightness(displayID, 1.0)
+            let result = api.setBrightness(displayID, Float(clampedBrightness))
             if result != 0 {
-                hardwareBrightnessLogger.error("Failed to set hardware brightness to max for display \(displayID): \(result)")
+                hardwareBrightnessLogger.error("Failed to set hardware brightness for display \(displayID) to \(clampedBrightness): \(result)")
             } else {
-                hardwareBrightnessLogger.info("Set hardware brightness to max for display \(displayID)")
+                hardwareBrightnessLogger.info("Set hardware brightness for display \(displayID) to \(clampedBrightness)")
             }
         }
     }
@@ -223,7 +226,7 @@ class Stillcolor {
         let defaults = UserDefaults.standard
         enableDisableDithering(defaults.bool(forKey: "disableDithering"))
         enableDisableUniformity2D(defaults.bool(forKey: "disableUniformity2D"))
-        setHardwareBrightnessToMaxIfEnabled()
+        setHardwareBrightnessToSavedPreference()
         enableDisableSoftwareDimming(
             defaults.bool(forKey: "enableSoftwareDimming"),
             brightness: defaults.object(forKey: "softwareBrightness") as? Double ?? 1.0
